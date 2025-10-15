@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <title>Mobile Pedometer</title>
+  <style>
+    :root{--bg:#0f1724;--card:#0b1220;--accent:#06b6d4;--muted:#94a3b8}
+    html,body{margin:0;font-family:Inter,system-ui;background:#071023;color:#e6eef6}
+    .wrap{max-width:520px;margin:18px auto;padding:14px}
+    header{display:flex;justify-content:space-between;align-items:center}
+    .card{background:#0b1220;padding:14px;border-radius:12px;margin-top:12px}
+    .big{font-size:2rem;font-weight:700}
+    .small{color:var(--muted);font-size:0.85rem}
+    button{border:1px solid rgba(255,255,255,0.1);background:transparent;color:inherit;padding:8px 10px;border-radius:10px;margin:4px}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Mobile Pedometer</h1>
+    <small>JS Web APIs</small>
+  </header>
+
+  <div class="card">
+    <p><b>Steps:</b> <span id="steps">0</span></p>
+    <p><b>Distance:</b> <span id="distance">0.00</span> km</p>
+    <p>Step length (m): <input type="number" id="stepLength" value="0.78" step="0.01"></p>
+
+    <button id="enableMotion">Enable Motion</button>
+    <button id="reset">Reset</button>
+
+    <hr>
+    <p id="coords">Location: —</p>
+    <p id="weather">Weather: —</p>
+    <button id="getLocation">Get Location</button>
+    <button id="getWeather">Get Weather</button>
+    <p id="status">Status: idle</p>
+  </div>
+</div>
+
+<script>
+const OPENWEATHERMAP_API_KEY = "REPLACE_WITH_YOUR_OPENWEATHERMAP_API_KEY";
+let steps = 0, lastStep = 0, lastMag = 0;
+const stepsEl = document.getElementById("steps");
+const distEl = document.getElementById("distance");
+const stepLenEl = document.getElementById("stepLength");
+const statusEl = document.getElementById("status");
+const coordsEl = document.getElementById("coords");
+const weatherEl = document.getElementById("weather");
+let coords = null;
+
+function setStatus(msg){ statusEl.textContent = "Status: " + msg; }
+function updateDisplay(){
+  stepsEl.textContent = steps;
+  distEl.textContent = (steps * parseFloat(stepLenEl.value) / 1000).toFixed(2);
+}
+
+// Step detection
+function handleAccel(x,y,z,t){
+  let mag = Math.sqrt(x*x + y*y + z*z)/9.8;
+  if (mag>1.1 && lastMag<=1.1 && (t-lastStep)>300){
+    steps++; lastStep = t; updateDisplay();
+  }
+  lastMag = mag;
+}
+
+async function startMotion(){
+  setStatus("Requesting motion...");
+  if ('Accelerometer' in window){
+    try{
+      const sensor = new Accelerometer({frequency:30});
+      sensor.addEventListener("reading",()=>handleAccel(sensor.x,sensor.y,sensor.z,Date.now()));
+      sensor.start();
+      setStatus("Using Accelerometer");
+      return;
+    }catch(e){ setStatus("Accelerometer failed"); }
+  }
+  if (typeof DeviceMotionEvent !== "undefined" && typeof DeviceMotionEvent.requestPermission === "function"){
+    const res = await DeviceMotionEvent.requestPermission();
+    if(res==="granted"){
+      window.addEventListener("devicemotion",e=>{
+        const a=e.accelerationIncludingGravity||{x:0,y:0,z:0};
+        handleAccel(a.x,a.y,a.z,e.timeStamp||Date.now());
+      });
+      setStatus("DeviceMotion enabled");
+    } else setStatus("Motion permission denied");
+  } else {
+    window.addEventListener("devicemotion",e=>{
+      const a=e.accelerationIncludingGravity||{x:0,y:0,z:0};
+      handleAccel(a.x,a.y,a.z,e.timeStamp||Date.now());
+    });
+    setStatus("DeviceMotion started");
+  }
+}
+
+// Location
+function getLocation(){
+  if(!navigator.geolocation){ setStatus("Geolocation not supported"); return; }
+  navigator.geolocation.getCurrentPosition(pos=>{
+    coords = pos.coords;
+    coordsEl.textContent = `Lat: ${coords.latitude.toFixed(3)}, Lon: ${coords.longitude.toFixed(3)}`;
+    setStatus("Location found");
+  },()=>setStatus("Location denied"));
+}
+
+// Weather
+async function getWeather(){
+  if(!coords){ setStatus("Get location first"); return; }
+  setStatus("Fetching weather...");
+  const url=`https://api.openweathermap.org/data/2.5/weather?lat=${coords.latitude}&lon=${coords.longitude}&appid=${OPENWEATHERMAP_API_KEY}&units=metric`;
+  const res=await fetch(url); const data=await res.json();
+  weatherEl.textContent=`${data.name}: ${data.weather[0].main}, ${Math.round(data.main.temp)}°C`;
+  setStatus("Weather updated");
+}
+
+// Buttons
+document.getElementById("enableMotion").onclick=startMotion;
+document.getElementById("reset").onclick=()=>{steps=0;updateDisplay();setStatus("Reset");};
+document.getElementById("getLocation").onclick=getLocation;
+document.getElementById("getWeather").onclick=getWeather;
+</script>
+</body>
+</html>
+
